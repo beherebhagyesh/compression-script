@@ -12,17 +12,25 @@
         <p class="eyebrow">Local Lossless WebP Converter</p>
         <h1>Anas Compression Script</h1>
         <p class="lede">
-          Enter a folder path like <code>C:\Users\bhagy\images</code>. The tool will recursively find direct image files and image paths referenced inside CSV files. Direct image scans write sibling <code>_lossless.webp</code> files next to each source image. CSV-referenced images are grouped into the CSV file's subfolder.
+          Enter a source folder or zip path, then choose one output base path and one output folder name. The tool scans the source, finds direct images and CSV-referenced images, and writes all converted WebP files into the new output folder you define.
         </p>
       </section>
 
       <section class="panel controls">
-        <label for="folderPath">Folder path</label>
+        <label for="sourcePath">Source path</label>
         <div class="path-row">
-          <input id="folderPath" type="text" placeholder="C:\Users\bhagy\images" />
+          <input id="sourcePath" type="text" placeholder="C:\Users\bhagy\images or C:\Users\bhagy\Downloads\folder.zip" />
+        </div>
+        <label for="outputBasePath">Output base path</label>
+        <div class="path-row">
+          <input id="outputBasePath" type="text" placeholder="C:\Users\bhagy\Downloads" />
+        </div>
+        <label for="outputFolderName">Output folder name</label>
+        <div class="path-row">
+          <input id="outputFolderName" type="text" placeholder="Florida WebP" />
           <button id="scanBtn">Scan Folder</button>
         </div>
-        <p class="hint">Supports images found directly in the folder tree and image paths discovered inside CSV files.</p>
+        <p class="hint">Supports a source directory or zip file, and writes all outputs into one newly created folder under the output base path you choose.</p>
       </section>
 
       <section class="stats-grid" id="statsGrid"></section>
@@ -57,9 +65,11 @@
         <h2>Behavior</h2>
         <ul>
           <li>Converts to lossless WebP using Pillow.</li>
-          <li>Direct image scans write next to the originals as <code>filename_lossless.webp</code>.</li>
-          <li>CSV-referenced images write into the CSV subfolder as <code>filename_lossless.webp</code>.</li>
-          <li>Scans subfolders recursively.</li>
+          <li>Accepts a source folder or a zip file.</li>
+          <li>Creates one new output folder where all converted files are written.</li>
+          <li>Preserves source subfolder structure inside that output folder.</li>
+          <li>CSV-referenced images are grouped under the CSV's relative subfolder inside the output folder.</li>
+          <li>Scans source subfolders recursively.</li>
           <li>Reads CSV files and converts images whose paths are referenced in CSV cells.</li>
         </ul>
       </section>

@@ -1,4 +1,6 @@
-const folderInput = document.getElementById('folderPath');
+const sourceInput = document.getElementById('sourcePath');
+const outputBaseInput = document.getElementById('outputBasePath');
+const outputFolderInput = document.getElementById('outputFolderName');
 const scanBtn = document.getElementById('scanBtn');
 const convertBtn = document.getElementById('convertBtn');
 const resultsPanel = document.getElementById('resultsPanel');
@@ -51,19 +53,21 @@ async function postJson(url, body) {
 }
 
 scanBtn.addEventListener('click', async () => {
-  const folderPath = folderInput.value.trim();
-  if (!folderPath) {
-    addLog('Enter a folder path first.', true);
+  const sourcePath = sourceInput.value.trim();
+  const outputBasePath = outputBaseInput.value.trim();
+  const outputFolderName = outputFolderInput.value.trim();
+  if (!sourcePath || !outputBasePath || !outputFolderName) {
+    addLog('Enter source path, output base path, and output folder name first.', true);
     return;
   }
 
   try {
     setButtonState(scanBtn, true, 'Scanning...', 'Scan Folder');
     resultsPanel.classList.add('hidden');
-    const data = await postJson('/api/scan', { folderPath });
+    const data = await postJson('/api/scan', { sourcePath, outputBasePath, outputFolderName });
     currentImages = data.images || [];
     renderStats(data.counts);
-    summaryText.textContent = `${currentImages.length} unique image(s) discovered under ${data.folder}`;
+    summaryText.textContent = `${currentImages.length} unique image(s) discovered from ${data.source_kind} source. Output folder: ${data.output_root}`;
     resultsBody.innerHTML = currentImages.map((item) => `
       <tr>
         <td><code>${item.source}</code></td>
@@ -71,7 +75,8 @@ scanBtn.addEventListener('click', async () => {
       </tr>
     `).join('');
     resultsPanel.classList.remove('hidden');
-    addLog(`Scan complete: ${currentImages.length} image(s) queued from ${data.folder}`);
+    addLog(`Scan complete: ${currentImages.length} image(s) queued from ${data.working_folder}`);
+    addLog(`Output folder prepared at ${data.output_root}`);
   } catch (error) {
     addLog(`Scan failed: ${error.message}`, true);
     renderStats();

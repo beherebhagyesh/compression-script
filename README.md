@@ -1,16 +1,24 @@
 # Anas Compression Script
 
-Local browser UI for scanning a folder, finding images directly or through CSV references, and converting them into sibling lossless WebP files.
+Local browser UI for scanning a folder or zip file, finding images directly or through CSV references, and converting them into lossless WebP files inside one chosen output folder.
 
 ## Output naming
 
-Directly discovered image files are written next to the original as:
+The app now asks for:
 
-- `originalname_lossless.webp`
+- source path
+- output base path
+- output folder name
 
-CSV-referenced image files are written into the CSV file's subfolder using the same output name:
+All converted files are written under:
 
-- `originalname_lossless.webp`
+- `output base path/output folder name`
+
+Inside that folder:
+
+- direct image files preserve relative subfolder structure
+- CSV-referenced image files are grouped by the CSV file's relative subfolder
+- output filenames remain `originalname_lossless.webp`
 
 ## Run
 
@@ -24,8 +32,9 @@ Then open:
 
 ## Notes
 
-- Scans folders recursively.
-- Converts direct image files found in the folder tree.
+- Accepts a source folder or a source zip file.
+- Scans source folders recursively.
+- Converts direct image files found in the source tree.
 - Reads CSV files in the same tree and converts image paths referenced in CSV cells.
-- Groups CSV-driven outputs into the CSV subfolder.
+- Writes all results into one new user-chosen output folder.
 - Uses Pillow lossless WebP output.

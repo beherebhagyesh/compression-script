@@ -1,11 +1,10 @@
 import csv
 import json
 import mimetypes
-import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from io import BytesIO
 from pathlib import Path
 from urllib.parse import urlparse
+from zipfile import ZipFile
 
 from PIL import Image
 
@@ -48,37 +47,34 @@ def candidate_paths_from_cell(cell: str, csv_path: Path, root: Path) -> list[Pat
     return resolved
 
 
-def find_images_from_csvs(target: Path) -> list[Path]:
-    discovered: set[Path] = set()
-    for csv_file in target.rglob("*.csv"):
-        try:
-            with csv_file.open("r", encoding="utf-8-sig", newline="") as handle:
-                reader = csv.reader(handle)
-                for row in reader:
-                    for cell in row:
-                        for candidate in candidate_paths_from_cell(cell, csv_file, target):
-                            if candidate.exists() and is_image_file(candidate):
-                                discovered.add(candidate.resolve())
-        except UnicodeDecodeError:
-            try:
-                with csv_file.open("r", encoding="latin-1", newline="") as handle:
-                    reader = csv.reader(handle)
-                    for row in reader:
-                        for cell in row:
-                            for candidate in candidate_paths_from_cell(cell, csv_file, target):
-                                if candidate.exists() and is_image_file(candidate):
-                                    discovered.add(candidate.resolve())
-            except Exception:
-                continue
-        except Exception:
-            continue
-    return sorted(discovered)
+def prepare_source(source_path: str) -> tuple[Path, str, str]:
+    source = Path(source_path).expanduser().resolve()
+    if not source.exists():
+        raise ValueError("Source path does not exist.")
+    if source.is_dir():
+        return source, "directory", source.name
+    if source.is_file() and source.suffix.lower() == ".zip":
+        extract_root = source.parent / f"{source.stem}__extracted"
+        extract_root.mkdir(parents=True, exist_ok=True)
+        with ZipFile(source, "r") as archive:
+            archive.extractall(extract_root)
+        return extract_root, "zip", source.stem
+    raise ValueError("Source path must be a folder or a .zip file.")
 
 
-def discover_images(target_folder: str) -> dict:
-    target = Path(target_folder).expanduser().resolve()
-    if not target.exists() or not target.is_dir():
-        raise ValueError("Folder path does not exist or is not a directory.")
+def build_output_root(output_base_path: str, output_folder_name: str) -> Path:
+    output_base = Path(output_base_path).expanduser().resolve()
+    if not output_base.exists() or not output_base.is_dir():
+        raise ValueError("Output base path does not exist or is not a directory.")
+    folder_name = output_folder_name.strip()
+    if not folder_name:
+        raise ValueError("Output folder name is required.")
+    return output_base / folder_name
+
+
+def discover_images(source_path: str, output_base_path: str, output_folder_name: str) -> dict:
+    target, source_kind, source_label = prepare_source(source_path)
+    output_root = build_output_root(output_base_path, output_folder_name)
 
     direct_images = {p.resolve() for p in find_direct_images(target)}
     csv_image_refs = []
@@ -106,8 +102,26 @@ def discover_images(target_folder: str) -> dict:
     for image_path, csv_path in csv_image_refs:
         csv_group_map.setdefault(image_path, []).append(csv_path)
 
+    def relative_from_target(path: Path) -> Path:
+        try:
+            return path.relative_to(target)
+        except ValueError:
+            return Path(path.name)
+
+    def mapped_output(path: Path) -> Path:
+        if path in csv_group_map:
+            csv_parent = min(csv_group_map[path], key=lambda p: len(p.relative_to(target).parts)).parent
+            relative_parent = csv_parent.relative_to(target)
+            return output_root / relative_parent / f"{path.stem}_lossless.webp"
+        relative = relative_from_target(path)
+        return output_root / relative.parent / f"{path.stem}_lossless.webp"
+
     return {
-        "folder": str(target),
+        "source_path": str(source_path),
+        "source_kind": source_kind,
+        "working_folder": str(target),
+        "source_label": source_label,
+        "output_root": str(output_root),
         "counts": {
             "direct_images": len(direct_images),
             "csv_referenced_images": len(csv_images),
@@ -116,13 +130,8 @@ def discover_images(target_folder: str) -> dict:
         "images": [
             {
                 "source": str(path),
-                "relative": str(path.relative_to(target)) if target in path.parents or path == target else path.name,
-                "output": str(
-                    (
-                        min(csv_group_map[path], key=lambda p: len(p.relative_to(target).parts)).parent
-                        / f"{path.stem}_lossless.webp"
-                    ) if path in csv_group_map else path.with_name(f"{path.stem}_lossless.webp")
-                ),
+                "relative": str(relative_from_target(path)),
+                "output": str(mapped_output(path)),
                 "csv_groups": [str(p.parent) for p in csv_group_map.get(path, [])],
             }
             for path in all_images
@@ -195,8 +204,10 @@ class AppHandler(BaseHTTPRequestHandler):
         try:
             body = self._read_json()
             if route == "/api/scan":
-                folder = body.get("folderPath", "")
-                return self._send_json({"ok": True, **discover_images(folder)})
+                source_path = body.get("sourcePath", "")
+                output_base_path = body.get("outputBasePath", "")
+                output_folder_name = body.get("outputFolderName", "")
+                return self._send_json({"ok": True, **discover_images(source_path, output_base_path, output_folder_name)})
             if route == "/api/convert":
                 items = body.get("images", [])
                 if not items:
