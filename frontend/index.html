@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Anas Compression Script</title>
+    <link rel="stylesheet" href="/frontend/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero">
+        <p class="eyebrow">Local Lossless WebP Converter</p>
+        <h1>Anas Compression Script</h1>
+        <p class="lede">
+          Enter a folder path like <code>C:\Users\bhagy\images</code>. The tool will recursively find direct image files and image paths referenced inside CSV files. Direct image scans write sibling <code>_lossless.webp</code> files next to each source image. CSV-referenced images are grouped into the CSV file's subfolder.
+        </p>
+      </section>
+
+      <section class="panel controls">
+        <label for="folderPath">Folder path</label>
+        <div class="path-row">
+          <input id="folderPath" type="text" placeholder="C:\Users\bhagy\images" />
+          <button id="scanBtn">Scan Folder</button>
+        </div>
+        <p class="hint">Supports images found directly in the folder tree and image paths discovered inside CSV files.</p>
+      </section>
+
+      <section class="stats-grid" id="statsGrid"></section>
+
+      <section class="panel results hidden" id="resultsPanel">
+        <div class="results-header">
+          <div>
+            <h2>Discovered Images</h2>
+            <p id="summaryText"></p>
+          </div>
+          <button id="convertBtn" class="accent">Convert All To Lossless WebP</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Source</th>
+                <th>Output</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel hidden" id="logPanel">
+        <h2>Conversion Log</h2>
+        <ul id="logList" class="log-list"></ul>
+      </section>
+
+      <section class="panel note">
+        <h2>Behavior</h2>
+        <ul>
+          <li>Converts to lossless WebP using Pillow.</li>
+          <li>Direct image scans write next to the originals as <code>filename_lossless.webp</code>.</li>
+          <li>CSV-referenced images write into the CSV subfolder as <code>filename_lossless.webp</code>.</li>
+          <li>Scans subfolders recursively.</li>
+          <li>Reads CSV files and converts images whose paths are referenced in CSV cells.</li>
+        </ul>
+      </section>
+    </main>
+
+    <script src="/frontend/app.js"></script>
+  </body>
+</html>
