@@ -120,7 +120,8 @@ start.bat
 `start.bat` will:
 
 - detect `py` or `python`
-- create a local `.venv` in the repo if needed
+- try to create a local `.venv` in the repo
+- fall back to the system Python if `.venv` creation is unavailable
 - install dependencies from `requirements.txt`
 - start the local server
 
@@ -243,6 +244,8 @@ then keep this as a local app, or package it later as:
 ## Notes
 
 - Someone cloning the repo can run it from the project root with `start.bat`.
+- Prerequisite: Python 3.11+ with pip available as `py` or `python`.
+- First run needs internet access to install Pillow from `requirements.txt`.
 - ZIP files are extracted automatically before scanning.
 - Output folders are created automatically if needed.
 - The app writes lossless WebP using Pillow.
