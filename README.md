@@ -1,4 +1,4 @@
-# Anas Compression Script
+# Compression Script
 
 Local browser-based tool for scanning a folder or zip file, finding images directly or through CSV references, and converting them into lossless WebP files inside a new output folder you choose.
 
@@ -97,7 +97,7 @@ The app scans CSV files and looks for cells that contain image paths. It support
 ## Project Structure
 
 ```text
-anas-compression-script/
+compression-script/
 ├── backend/
 │   └── server.py
 ├── frontend/
@@ -255,4 +255,4 @@ then keep this as a local app, or package it later as:
 
 GitHub:
 
-`https://github.com/beherebhagyesh/anas-compression-script`
+`https://github.com/beherebhagyesh/compression-script`

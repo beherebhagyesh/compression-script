@@ -227,7 +227,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     server = ThreadingHTTPServer((HOST, PORT), AppHandler)
-    print(f"Anas Compression Script running on http://{HOST}:{PORT}")
+    print(f"Compression Script running on http://{HOST}:{PORT}")
     server.serve_forever()
 
 
