@@ -1,4 +1,3 @@
-import csv
 import json
 import mimetypes
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,7 +12,6 @@ FRONTEND_DIR = ROOT / "frontend"
 HOST = "127.0.0.1"
 PORT = 8876
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".gif", ".webp"}
-CSV_EXTENSIONS = {".csv"}
 
 
 def is_image_file(path: Path) -> bool:
@@ -22,29 +20,6 @@ def is_image_file(path: Path) -> bool:
 
 def find_direct_images(target: Path) -> list[Path]:
     return [p for p in target.rglob("*") if is_image_file(p)]
-
-
-def candidate_paths_from_cell(cell: str, csv_path: Path, root: Path) -> list[Path]:
-    value = (cell or "").strip().strip('"').strip("'")
-    if not value:
-        return []
-
-    candidates = []
-    raw = Path(value)
-    if raw.suffix.lower() in IMAGE_EXTENSIONS:
-        candidates.append(raw)
-    else:
-        return []
-
-    resolved = []
-    for candidate in candidates:
-        if candidate.is_absolute():
-            resolved.append(candidate)
-        else:
-            resolved.append((csv_path.parent / candidate).resolve())
-            resolved.append((root / candidate).resolve())
-            resolved.append((root / candidate.name).resolve())
-    return resolved
 
 
 def prepare_source(source_path: str) -> tuple[Path, str, str]:
@@ -76,45 +51,13 @@ def discover_images(source_path: str, output_base_path: str, output_folder_name:
     target, source_kind, source_label = prepare_source(source_path)
     output_root = build_output_root(output_base_path, output_folder_name)
 
-    direct_images = {p.resolve() for p in find_direct_images(target)}
-    csv_image_refs = []
-    for csv_file in target.rglob("*.csv"):
-        try:
-            readers = []
-            try:
-                readers.append(csv_file.open("r", encoding="utf-8-sig", newline=""))
-            except UnicodeDecodeError:
-                readers.append(csv_file.open("r", encoding="latin-1", newline=""))
-            for handle in readers:
-                with handle:
-                    reader = csv.reader(handle)
-                    for row in reader:
-                        for cell in row:
-                            for candidate in candidate_paths_from_cell(cell, csv_file, target):
-                                if candidate.exists() and is_image_file(candidate):
-                                    csv_image_refs.append((candidate.resolve(), csv_file.resolve()))
-        except Exception:
-            continue
-
-    csv_images = {path for path, _ in csv_image_refs}
-    all_images = sorted(direct_images | csv_images)
-    csv_group_map: dict[Path, list[Path]] = {}
-    for image_path, csv_path in csv_image_refs:
-        csv_group_map.setdefault(image_path, []).append(csv_path)
+    all_images = sorted(find_direct_images(target), key=lambda p: str(p))
 
     def relative_from_target(path: Path) -> Path:
         try:
             return path.relative_to(target)
         except ValueError:
             return Path(path.name)
-
-    def mapped_output(path: Path) -> Path:
-        if path in csv_group_map:
-            csv_parent = min(csv_group_map[path], key=lambda p: len(p.relative_to(target).parts)).parent
-            relative_parent = csv_parent.relative_to(target)
-            return output_root / relative_parent / f"{path.stem}_lossless.webp"
-        relative = relative_from_target(path)
-        return output_root / relative.parent / f"{path.stem}_lossless.webp"
 
     return {
         "source_path": str(source_path),
@@ -123,46 +66,229 @@ def discover_images(source_path: str, output_base_path: str, output_folder_name:
         "source_label": source_label,
         "output_root": str(output_root),
         "counts": {
-            "direct_images": len(direct_images),
-            "csv_referenced_images": len(csv_images),
-            "total_unique_images": len(all_images),
+            "total_images": len(all_images),
         },
         "images": [
             {
                 "source": str(path),
                 "relative": str(relative_from_target(path)),
-                "output": str(mapped_output(path)),
-                "csv_groups": [str(p.parent) for p in csv_group_map.get(path, [])],
+                "source_ext": path.suffix.lower(),
             }
             for path in all_images
         ],
     }
 
 
-def convert_to_lossless_webp(source_path: str, output_path: str | None = None) -> dict:
-    source = Path(source_path).expanduser().resolve()
-    if not source.exists() or not is_image_file(source):
-        raise ValueError(f"Unsupported or missing image: {source}")
+# ---------------------------------------------------------------------------
+# Preset resolution
+# ---------------------------------------------------------------------------
 
-    output = (
-        Path(output_path).expanduser().resolve()
-        if output_path
-        else source.with_name(f"{source.stem}_lossless.webp")
-    )
-    output.parent.mkdir(parents=True, exist_ok=True)
+PRESETS = {
+    "lossless": {
+        "lossless": True,
+        "quality": 100,
+        "max_width": None,
+        "max_height": None,
+    },
+    "balanced": {
+        "lossless": False,
+        "quality": 82,
+        "max_width": 2000,
+        "max_height": None,
+    },
+    "small_file": {
+        "lossless": False,
+        "quality": 68,
+        "max_width": 1600,
+        "max_height": None,
+    },
+}
 
-    with Image.open(source) as img:
-        normalized = img.convert("RGBA") if img.mode in {"RGBA", "LA", "P"} else img.convert("RGB")
-        normalized.save(output, format="WEBP", lossless=True, method=6)
+
+def resolve_options(body: dict) -> dict:
+    """Merge preset defaults with any explicit overrides from the request body."""
+    preset_key = (body.get("preset") or "balanced").lower().replace(" ", "_").replace("-", "_")
+    base = dict(PRESETS.get(preset_key, PRESETS["balanced"]))
+
+    # Explicit overrides win over preset defaults
+    for key in ("quality", "lossless", "max_width", "max_height", "target_kb", "strip_metadata", "overwrite"):
+        if body.get(key) is not None:
+            base[key] = body[key]
+
+    # Fill keys that might not exist in preset
+    base.setdefault("target_kb", None)
+    base.setdefault("strip_metadata", False)
+    base.setdefault("overwrite", False)
+
+    return base
+
+
+# ---------------------------------------------------------------------------
+# Output path helpers
+# ---------------------------------------------------------------------------
+
+MODE_SUFFIX = {
+    "keep_format": "_compressed",
+    "to_webp_lossless": "_lossless",
+    "to_webp_lossy": "_webp",
+    "convert_compress": "_optimized",
+}
+
+
+def resolve_output_ext(mode: str, source_ext: str, output_format: str | None) -> str:
+    if mode == "keep_format":
+        # Stay with source extension (normalise jpeg → jpg for output)
+        return ".jpg" if source_ext in {".jpeg", ".jpg"} else source_ext
+    if mode in {"to_webp_lossless", "to_webp_lossy"}:
+        return ".webp"
+    # convert_compress: user-chosen format, default webp
+    fmt = (output_format or "webp").lower().strip(".")
+    return {"jpg": ".jpg", "jpeg": ".jpg", "png": ".png", "webp": ".webp"}.get(fmt, ".webp")
+
+
+def resolve_suffix(mode: str) -> str:
+    return MODE_SUFFIX.get(mode, "_optimized")
+
+
+def make_output_path(output_root: Path, relative: str, source_ext: str, mode: str, output_format: str | None) -> Path:
+    rel = Path(relative)
+    ext = resolve_output_ext(mode, source_ext, output_format)
+    suffix = resolve_suffix(mode)
+    return output_root / rel.parent / f"{rel.stem}{suffix}{ext}"
+
+
+# ---------------------------------------------------------------------------
+# Encoding helpers
+# ---------------------------------------------------------------------------
+
+def _open_and_prepare(source: Path, lossless: bool, strip_metadata: bool) -> Image.Image:
+    img = Image.open(source)
+    if lossless or img.mode in {"RGBA", "LA", "P"}:
+        img = img.convert("RGBA")
+    else:
+        img = img.convert("RGB")
+    return img
+
+
+def _apply_resize(img: Image.Image, max_width: int | None, max_height: int | None, scale: float = 1.0) -> Image.Image:
+    w, h = img.size
+    target_w = int((max_width or w) * scale)
+    target_h = int((max_height or h) * scale)
+    # Only downscale, never upscale
+    ratio = min(target_w / w, target_h / h, 1.0)
+    if ratio < 1.0:
+        new_w, new_h = int(w * ratio), int(h * ratio)
+        return img.resize((new_w, new_h), Image.LANCZOS)
+    return img
+
+
+def _encode_to_bytes(img: Image.Image, ext: str, quality: int, lossless: bool) -> bytes:
+    import io
+    buf = io.BytesIO()
+    if ext == ".webp":
+        if lossless and img.mode == "RGBA":
+            img.save(buf, format="WEBP", lossless=True, method=6)
+        elif lossless:
+            img.save(buf, format="WEBP", lossless=True, method=6)
+        else:
+            img.save(buf, format="WEBP", quality=quality, method=6)
+    elif ext == ".jpg":
+        img = img.convert("RGB") if img.mode != "RGB" else img
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+    elif ext == ".png":
+        img.save(buf, format="PNG", optimize=True)
+    else:
+        img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
+def encode_image(source: Path, output: Path, options: dict) -> dict:
+    """
+    Core encode function. Handles:
+    - resize
+    - quality
+    - lossless
+    - target_kb iterative loop
+    Returns a stats dict with bytes_in, bytes_out, warnings.
+    """
+    ext = output.suffix.lower()
+    quality = int(options.get("quality") or 82)
+    lossless = bool(options.get("lossless", False))
+    max_width = options.get("max_width")
+    max_height = options.get("max_height")
+    target_kb = options.get("target_kb")
+    strip_metadata = bool(options.get("strip_metadata", False))
+
+    bytes_in = source.stat().st_size
+    warnings = []
+
+    # Warn if source is already WebP and mode is keep_format
+    if source.suffix.lower() == ".webp" and ext == ".webp":
+        warnings.append("Source is already WebP. Re-encoded with current settings.")
+
+    img = _open_and_prepare(source, lossless, strip_metadata)
+
+    if target_kb:
+        # Iterative size targeting
+        target_bytes = target_kb * 1024
+        MIN_QUALITY = 35
+        MIN_SCALE = 0.40
+        MAX_ITERATIONS = 10
+        scale = 1.0
+        result_bytes = None
+
+        for attempt in range(MAX_ITERATIONS):
+            resized = _apply_resize(img, max_width, max_height, scale)
+            data = _encode_to_bytes(resized, ext, quality, lossless)
+            if len(data) <= target_bytes:
+                result_bytes = data
+                break
+            # Reduce quality first, then scale
+            if quality > MIN_QUALITY:
+                quality = max(MIN_QUALITY, quality - 8)
+            elif scale > MIN_SCALE:
+                scale = max(MIN_SCALE, scale - 0.12)
+            else:
+                # Exhausted options — use best effort
+                result_bytes = data
+                warnings.append(f"Could not reach {target_kb} KB. Best result: {len(data) // 1024} KB.")
+                break
+
+        if result_bytes is None:
+            result_bytes = data
+
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(result_bytes)
+        bytes_out = len(result_bytes)
+    else:
+        resized = _apply_resize(img, max_width, max_height)
+        data = _encode_to_bytes(resized, ext, quality, lossless)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_bytes(data)
+        bytes_out = len(data)
+
+    reduction = round((1 - bytes_out / bytes_in) * 100, 1) if bytes_in else 0
 
     return {
         "source": str(source),
         "output": str(output),
-        "bytes": output.stat().st_size,
+        "source_ext": source.suffix.lower(),
+        "output_ext": ext,
+        "bytes_in": bytes_in,
+        "bytes_out": bytes_out,
+        "reduction_pct": reduction,
+        "warnings": warnings,
     }
 
 
+# ---------------------------------------------------------------------------
+# HTTP server
+# ---------------------------------------------------------------------------
+
 class AppHandler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):  # silence access log
+        pass
+
     def _send_json(self, payload: dict, status: int = 200) -> None:
         data = json.dumps(payload).encode("utf-8")
         self.send_response(status)
@@ -203,23 +329,57 @@ class AppHandler(BaseHTTPRequestHandler):
         route = parsed.path
         try:
             body = self._read_json()
+
             if route == "/api/scan":
                 source_path = body.get("sourcePath", "")
                 output_base_path = body.get("outputBasePath", "")
                 output_folder_name = body.get("outputFolderName", "")
-                return self._send_json({"ok": True, **discover_images(source_path, output_base_path, output_folder_name)})
+                return self._send_json({
+                    "ok": True,
+                    **discover_images(source_path, output_base_path, output_folder_name),
+                })
+
             if route == "/api/convert":
-                items = body.get("images", [])
-                if not items:
-                    raise ValueError("No images were provided for conversion.")
-                converted = [
-                    convert_to_lossless_webp(
-                        item["source"] if isinstance(item, dict) else item,
-                        item.get("output") if isinstance(item, dict) else None,
-                    )
-                    for item in items
-                ]
-                return self._send_json({"ok": True, "converted": converted, "count": len(converted)})
+                images = body.get("images", [])
+                if not images:
+                    raise ValueError("No images provided for conversion.")
+
+                mode = (body.get("mode") or "to_webp_lossy").strip()
+                output_format = body.get("outputFormat") or None
+                output_root = Path(body.get("outputRoot", "")).expanduser().resolve()
+                options = resolve_options(body)
+
+                # Lossless mode: override to lossless webp
+                if mode == "to_webp_lossless":
+                    options["lossless"] = True
+
+                results = []
+                for item in images:
+                    source = Path(item["source"])
+                    relative = item["relative"]
+                    source_ext = item.get("source_ext", source.suffix.lower())
+                    output_path = make_output_path(output_root, relative, source_ext, mode, output_format)
+
+                    try:
+                        stats = encode_image(source, output_path, options)
+                        stats["status"] = "ok"
+                    except Exception as exc:
+                        stats = {
+                            "source": str(source),
+                            "output": str(output_path),
+                            "source_ext": source_ext,
+                            "output_ext": output_path.suffix.lower(),
+                            "bytes_in": source.stat().st_size if source.exists() else 0,
+                            "bytes_out": 0,
+                            "reduction_pct": 0,
+                            "warnings": [],
+                            "status": "error",
+                            "error": str(exc),
+                        }
+                    results.append(stats)
+
+                return self._send_json({"ok": True, "results": results, "count": len(results)})
+
             self.send_error(404, "Not found")
         except Exception as exc:
             self._send_json({"ok": False, "error": str(exc)}, status=400)
