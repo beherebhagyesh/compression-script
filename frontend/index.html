@@ -9,46 +9,140 @@
   <body>
     <main class="app-shell">
       <section class="hero">
-        <p class="eyebrow">Local Lossless WebP Converter</p>
+        <p class="eyebrow">Multi-Mode Image Converter</p>
         <h1>Compression Script</h1>
         <p class="lede">
-          Enter a source folder or zip path, then choose one output base path and one output folder name. The tool scans the source, finds direct images and CSV-referenced images, and writes all converted WebP files into the new output folder you define.
+          Point at a folder or zip, choose how you want images processed, then scan and convert. Supports keep-format compression, WebP conversion, and custom output targets.
         </p>
       </section>
 
+      <!-- Step 1: Paths -->
       <section class="panel controls">
+        <p class="step-label">Step 1 — Where</p>
         <label for="sourcePath">Source path</label>
         <div class="path-row">
-          <input id="sourcePath" type="text" placeholder="C:\Users\bhagy\images or C:\Users\bhagy\Downloads\folder.zip" />
+          <input id="sourcePath" type="text" placeholder="C:\Users\you\images  or  C:\Downloads\folder.zip" />
         </div>
         <label for="outputBasePath">Output base path</label>
         <div class="path-row">
-          <input id="outputBasePath" type="text" placeholder="C:\Users\bhagy\Downloads" />
+          <input id="outputBasePath" type="text" placeholder="C:\Users\you\Downloads" />
         </div>
         <label for="outputFolderName">Output folder name</label>
-        <div class="path-row">
-          <input id="outputFolderName" type="text" placeholder="Florida WebP" />
-          <button id="scanBtn">Scan Folder</button>
+        <div class="path-row single">
+          <input id="outputFolderName" type="text" placeholder="My Compressed Images" />
         </div>
-        <p class="hint">Supports a source directory or zip file, and writes all outputs into one newly created folder under the output base path you choose.</p>
       </section>
 
-      <section class="stats-grid" id="statsGrid"></section>
+      <!-- Step 2: Mode -->
+      <section class="panel">
+        <p class="step-label">Step 2 — Mode</p>
+        <div class="mode-group" id="modeGroup">
+          <button class="mode-btn active" data-mode="keep_format">
+            <span class="mode-title">Keep Format &amp; Compress</span>
+            <span class="mode-desc">JPG stays JPG, PNG stays PNG — just smaller</span>
+          </button>
+          <button class="mode-btn" data-mode="to_webp_lossy">
+            <span class="mode-title">Convert to WebP</span>
+            <span class="mode-desc">Any format → WebP for web publishing</span>
+          </button>
+          <button class="mode-btn" data-mode="convert_compress">
+            <span class="mode-title">Convert &amp; Compress</span>
+            <span class="mode-desc">Change format and reduce size aggressively</span>
+          </button>
+        </div>
+      </section>
 
+      <!-- Step 3: Preset -->
+      <section class="panel">
+        <p class="step-label">Step 3 — Preset</p>
+        <div class="preset-group" id="presetGroup">
+          <button class="preset-btn" data-preset="lossless">
+            <span class="preset-title">Lossless</span>
+            <span class="preset-desc">No quality loss, larger files</span>
+          </button>
+          <button class="preset-btn active" data-preset="balanced">
+            <span class="preset-title">Balanced</span>
+            <span class="preset-desc">Quality 82, max 2000px wide</span>
+          </button>
+          <button class="preset-btn" data-preset="small_file">
+            <span class="preset-title">Small File</span>
+            <span class="preset-desc">Quality 68, max 1600px wide</span>
+          </button>
+        </div>
+
+        <!-- Advanced drawer -->
+        <details class="advanced-drawer" id="advancedDrawer">
+          <summary>Advanced options</summary>
+          <div class="advanced-grid">
+            <div class="adv-field" id="outputFormatField">
+              <label for="outputFormat">Output format</label>
+              <select id="outputFormat">
+                <option value="webp">WebP</option>
+                <option value="jpg">JPG</option>
+                <option value="png">PNG</option>
+              </select>
+            </div>
+            <div class="adv-field">
+              <label for="qualityInput">Quality (1–100)</label>
+              <div class="slider-row">
+                <input id="qualityRange" type="range" min="1" max="100" value="82" />
+                <input id="qualityInput" type="number" min="1" max="100" value="82" />
+              </div>
+            </div>
+            <div class="adv-field">
+              <label for="maxWidth">Max width (px)</label>
+              <input id="maxWidth" type="number" placeholder="e.g. 1920" min="1" />
+            </div>
+            <div class="adv-field">
+              <label for="maxHeight">Max height (px)</label>
+              <input id="maxHeight" type="number" placeholder="e.g. 1080" min="1" />
+            </div>
+            <div class="adv-field">
+              <label for="targetKb">Target size (KB)</label>
+              <input id="targetKb" type="number" placeholder="e.g. 200" min="1" />
+            </div>
+            <div class="adv-field adv-toggle">
+              <label>
+                <input id="stripMeta" type="checkbox" />
+                Strip metadata (EXIF, etc.)
+              </label>
+            </div>
+          </div>
+        </details>
+      </section>
+
+      <!-- Step 4: Scan -->
+      <section class="panel scan-row">
+        <p class="step-label">Step 4 — Scan &amp; Convert</p>
+        <div class="action-row">
+          <button id="scanBtn">Scan Folder</button>
+          <button id="convertBtn" class="accent" disabled>Convert</button>
+        </div>
+        <p class="hint" id="scanHint">Scan to discover images, then convert with the settings above.</p>
+      </section>
+
+      <!-- Stats -->
+      <section class="stats-grid hidden" id="statsGrid"></section>
+
+      <!-- Results preview / post-convert table -->
       <section class="panel results hidden" id="resultsPanel">
         <div class="results-header">
           <div>
-            <h2>Discovered Images</h2>
+            <h2 id="resultsTitle">Discovered Images</h2>
             <p id="summaryText"></p>
           </div>
-          <button id="convertBtn" class="accent">Convert All To Lossless WebP</button>
         </div>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Source</th>
-                <th>Output</th>
+                <th>Source file</th>
+                <th>From</th>
+                <th>To</th>
+                <th id="colSizeIn" class="hidden">Original</th>
+                <th id="colSizeOut" class="hidden">Output</th>
+                <th id="colReduction" class="hidden">Saved</th>
+                <th id="colStatus" class="hidden">Status</th>
               </tr>
             </thead>
             <tbody id="resultsBody"></tbody>
@@ -56,22 +150,10 @@
         </div>
       </section>
 
+      <!-- Log -->
       <section class="panel hidden" id="logPanel">
-        <h2>Conversion Log</h2>
+        <h2>Log</h2>
         <ul id="logList" class="log-list"></ul>
-      </section>
-
-      <section class="panel note">
-        <h2>Behavior</h2>
-        <ul>
-          <li>Converts to lossless WebP using Pillow.</li>
-          <li>Accepts a source folder or a zip file.</li>
-          <li>Creates one new output folder where all converted files are written.</li>
-          <li>Preserves source subfolder structure inside that output folder.</li>
-          <li>CSV-referenced images are grouped under the CSV's relative subfolder inside the output folder.</li>
-          <li>Scans source subfolders recursively.</li>
-          <li>Reads CSV files and converts images whose paths are referenced in CSV cells.</li>
-        </ul>
       </section>
     </main>
 
